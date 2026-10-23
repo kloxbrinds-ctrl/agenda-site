@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Painel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600&family=Jost:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main id="app"></main>
+<script src="/shared.js"></script>
+<script>
+const S = Store.load();
+const cal = { y: new Date().getFullYear(), m: new Date().getMonth() };
+let sel = null;
+let auth = false;
+try { auth = sessionStorage.getItem("adm") === "1"; } catch (e) {}
+const app = document.getElementById("app");
+
+function dayInfo(k) {
+  return { disabled: k < iso(new Date()), cls: S.blockedDays.includes(k) ? "blk" : "" };
+}
+
+function viewLogin() {
+  return `<section class="hero"><h1>Painel</h1><p>Área restrita.</p></section><div class="form"><input id="pin" type="password" inputmode="numeric" placeholder="Senha" autocomplete="current-password"><p id="err" class="err"></p><button class="btn" data-a="login">Entrar</button></div>`;
+}
+
+function viewPanel() {
+  let h = `<div class="row"><h2>${CONFIG.NAME}</h2><button class="btn ghost" data-a="logout">Sair</button></div>`;
+
+  // 1) Horários semanais
+  h += `<section class="box"><h2>Horários de atendimento</h2>`;
+  for (let i = 0; i < 7; i++) {
+    const w = S.weekly[i];
+    h += `<div class="wk"><label><input type="checkbox" data-c="${i}.on" ${w.on ? "checked" : ""}>${DIAS[i]}</label>` +
+      `<input type="time" data-c="${i}.start" value="${w.start}" ${w.on ? "" : "disabled"}>` +
+      `<input type="time" data-c="${i}.end" value="${w.end}" ${w.on ? "" : "disabled"}></div>`;
+  }
+  h += `<p class="mut" style="margin:12px 0 6px">Duração de cada atendimento</p><select data-c="dur">` +
+    [30, 45, 60, 90, 120].map(v => `<option value="${v}" ${v === S.duration ? "selected" : ""}>${v} minutos</option>`).join("") +
+    `</select></section>`;
+
+  // 2) Bloqueios
+  h += `<section class="box"><h2>Bloquear dias e horários</h2><p class="mut" style="margin-bottom:12px">Escolha um dia. Quando confirmar o pagamento de uma cliente, bloqueie o horário dela aqui.</p>${calendarHTML(cal, sel, dayInfo)}</section>`;
+
+  if (sel) {
+    const dayBlk = S.blockedDays.includes(sel), slots = allSlots(S, sel);
+    h += `<section class="box"><div class="row"><h2>${fdate(sel)}</h2><button class="btn ghost" data-a="blockday">${dayBlk ? "Liberar dia" : "Bloquear dia"}</button></div>`;
+    if (slots.length) {
+      h += `<div class="chips">` + slots.map(s => {
+        const st = slotState(S, sel, s);
+        return `<button class="chip ${st === "blocked" ? "blk" : ""}" data-a="blockslot" data-v="${s}">${s}</button>`;
+      }).join("") + `</div><p class="mut" style="margin-top:12px">Horários riscados estão indisponíveis para as clientes. Toque para bloquear ou liberar.</p>`;
+    } else {
+      h += `<p class="mut">Sem atendimento neste dia da semana. Ative o dia em “Horários de atendimento”.</p>`;
+    }
+    h += `</section>`;
+  }
+  return h;
+}
+
+function render() { app.innerHTML = auth ? viewPanel() : viewLogin(); }
+
+function toggleDay(k) {
+  const i = S.blockedDays.indexOf(k);
+  if (i >= 0) S.blockedDays.splice(i, 1); else S.blockedDays.push(k);
+  Store.save(S);
+}
+function toggleSlot(k, s) {
+  const a = S.blockedSlots[k] || (S.blockedSlots[k] = []), i = a.indexOf(s);
+  if (i >= 0) a.splice(i, 1); else a.push(s);
+  if (!a.length) delete S.blockedSlots[k];
+  Store.save(S);
+}
+
+app.addEventListener("click", e => {
+  const b = e.target.closest("[data-a]"); if (!b) return;
+  const a = b.dataset.a;
+  if (a === "login") {
+    if (document.getElementById("pin").value !== CONFIG.PIN) { document.getElementById("err").textContent = "Senha incorreta."; return; }
+    auth = true; try { sessionStorage.setItem("adm", "1"); } catch (x) {}
+  }
+  else if (a === "logout") { auth = false; sel = null; try { sessionStorage.removeItem("adm"); } catch (x) {} }
+  else if (a === "prev") shiftMonth(cal, -1);
+  else if (a === "next") shiftMonth(cal, 1);
+  else if (a === "day") sel = b.dataset.k;
+  else if (a === "blockday") toggleDay(sel);
+  else if (a === "blockslot") toggleSlot(sel, b.dataset.v);
+  render();
+});
+
+app.addEventListener("change", e => {
+  const c = e.target.dataset.c; if (!c) return;
+  if (c === "dur") S.duration = +e.target.value;
+  else {
+    const [w, f] = c.split(".");
+    if (f === "on") S.weekly[w].on = e.target.checked; else S.weekly[w][f] = e.target.value;
+  }
+  Store.save(S); render();
+});
+render();
+</script>
+</body>
+</html>
